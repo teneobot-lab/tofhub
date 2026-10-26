@@ -9,7 +9,7 @@ if getgenv and getgenv().TOFHubUnload then pcall(getgenv().TOFHubUnload) end
 local SOURCE = {
     mode = "local",
     folder = "TOFHub/",
-    base = "https://raw.githubusercontent.com/USER/REPO/COMMIT/TOFHub/",
+    base = "https://raw.githubusercontent.com/teneobot-lan/tofhub/f59122b/TOFHub/",
 }
 
 -- urutan penting: modul belakang memakai Hub.* dari modul depan
