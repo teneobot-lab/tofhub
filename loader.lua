@@ -5,6 +5,7 @@
 -- Bundle      : build.py mengisi EMBEDDED, jadi satu file saja yang perlu dieksekusi
 --========================================================
 if getgenv and getgenv().TOFHubUnload then pcall(getgenv().TOFHubUnload) end
+
 local SOURCE = {
     mode = "url",
     folder = "TOFHub/",
@@ -13,8 +14,8 @@ local SOURCE = {
 
 -- urutan penting: modul belakang memakai Hub.* dari modul depan
 local ORDER = {
-    "hub", "games", "config", "cats", "pool", "index", "roles",
-    "esp_players", "esp_objects", "esp_zombies",
+    "hub", "games", "config", "cats", "ui", "pool", "index", "roles",
+    "esp_players", "esp_objects", "esp_zombies", "ui_tabs",
 }
 -- gagal di salah satu ini = hentikan semuanya
 local CRITICAL = { hub = true, games = true, config = true, cats = true }
@@ -35,6 +36,7 @@ local function getModule(name)
 end
 
 local Hub = { failed = {}, loaded = {} }
+if getgenv then getgenv().TOFHub = Hub end -- tersedia sejak awal untuk debug
 
 for _, name in ipairs(ORDER) do
     local ok, err = pcall(function()
@@ -54,7 +56,6 @@ for _, name in ipairs(ORDER) do
 end
 
 if getgenv then getgenv().TOFHubUnload = Hub.unload end
-if getgenv then getgenv().TOFHub = Hub end -- akses dari console untuk debug
 Hub.start()
 
 local nFail = 0
