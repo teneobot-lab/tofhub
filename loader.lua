@@ -9,13 +9,13 @@ if getgenv and getgenv().TOFHubUnload then pcall(getgenv().TOFHubUnload) end
 local SOURCE = {
     mode = "url",
     folder = "TOFHub/",
-    base = "https://raw.githubusercontent.com/teneobot-lab/tofhub/main/",
+    base = "https://raw.githubusercontent.com/teneobot-lab/VD/main/",
 }
 
 -- urutan penting: modul belakang memakai Hub.* dari modul depan
 local ORDER = {
     "hub", "games", "config", "cats", "ui", "pool", "index", "roles",
-    "esp_players", "esp_objects", "esp_zombies", "world", "ui_tabs",
+    "esp_players", "esp_objects", "esp_zombies", "world", "ui_tabs", "violence_district",
 }
 -- gagal di salah satu ini = hentikan semuanya
 local CRITICAL = { hub = true, games = true, config = true, cats = true }
@@ -24,15 +24,35 @@ local EMBEDDED = {}
 
 local function getModule(name)
     if EMBEDDED[name] then return EMBEDDED[name] end
-    local src
+
     if SOURCE.mode == "url" then
-        src = game:HttpGet(SOURCE.base .. name .. ".lua")
+        -- Support both layouts without changing the existing module structure:
+        --   repository root:      /hub.lua
+        --   nested module folder: /TOFHub/hub.lua
+        local candidates = {
+            SOURCE.base .. name .. ".lua",
+            SOURCE.base .. "TOFHub/" .. name .. ".lua",
+        }
+        local errors = {}
+        for _, url in ipairs(candidates) do
+            local ok, src = pcall(function()
+                return game:HttpGet(url)
+            end)
+            if ok and type(src) == "string" and #src > 0 then
+                local fn, compileErr = loadstring(src, "=" .. name)
+                if fn then return fn() end
+                errors[#errors + 1] = url .. " -> " .. tostring(compileErr)
+            else
+                errors[#errors + 1] = url .. " -> " .. tostring(src)
+            end
+        end
+        error("gagal memuat modul " .. name .. ": " .. table.concat(errors, " | "), 0)
     else
-        src = readfile(SOURCE.folder .. name .. ".lua")
+        local src = readfile(SOURCE.folder .. name .. ".lua")
+        local fn, err = loadstring(src, "=" .. name)
+        if not fn then error(err, 0) end
+        return fn()
     end
-    local fn, err = loadstring(src, "=" .. name)
-    if not fn then error(err, 0) end
-    return fn()
 end
 
 local Hub = { failed = {}, loaded = {} }
