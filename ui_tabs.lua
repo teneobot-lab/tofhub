@@ -36,7 +36,7 @@ return function(Hub)
         ----------------------------------------------------------------
         -- DASHBOARD
         ----------------------------------------------------------------
-        local d = UI.page("Dashboard")
+        local d = UI.page("Dashboard", "📊")
         d:Info(function()
             local Core = Hub.Core
             local names = {}
@@ -71,7 +71,7 @@ return function(Hub)
         ----------------------------------------------------------------
         -- ESP (umum + Killer + Survivor)
         ----------------------------------------------------------------
-        local e = UI.page("ESP")
+        local e = UI.page("ESP", "👁")
         e:Section("Tampilan label")
         e:Toggle("Tampilkan nama", "ShowName")
         e:Toggle("Tampilkan jarak", "ShowDist")
@@ -86,20 +86,20 @@ return function(Hub)
         ----------------------------------------------------------------
         -- OBJEK
         ----------------------------------------------------------------
-        local o = UI.page("Objek")
+        local o = UI.page("Objek", "📦")
         for _, g in ipairs(Hub.OBJ_GROUPS) do catControls(o, g) end
 
         ----------------------------------------------------------------
         -- ZOMBIE
         ----------------------------------------------------------------
-        local z = UI.page("Zombie")
+        local z = UI.page("Zombie", "🧟")
         catControls(z, Hub.CAT.Zombie)
         z:Toggle("Semua NPC (abaikan kata kunci)", "ZomAll")
 
         ----------------------------------------------------------------
         -- ROLE
         ----------------------------------------------------------------
-        local r = UI.page("Role")
+        local r = UI.page("Role", "🎭")
         r:Info(function()
             local Core = Hub.Core
             if not Core or #Core.info == 0 then return "Belum ada pemain terdeteksi" end
@@ -143,7 +143,7 @@ return function(Hub)
         ----------------------------------------------------------------
         -- PENGATURAN
         ----------------------------------------------------------------
-        local s = UI.page("Pengaturan")
+        local s = UI.page("Pengaturan", "⚙")
         s:Section("Tampilan")
         s:Color("Warna aksen", "UIAccent")
         s:Section("Profil")
