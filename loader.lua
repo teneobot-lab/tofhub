@@ -5,11 +5,10 @@
 -- Bundle      : build.py mengisi EMBEDDED, jadi satu file saja yang perlu dieksekusi
 --========================================================
 if getgenv and getgenv().TOFHubUnload then pcall(getgenv().TOFHubUnload) end
-
 local SOURCE = {
-    mode = "local",
+    mode = "url",
     folder = "TOFHub/",
-    base = "https://raw.githubusercontent.com/teneobot-lab/tofhub/f59122b",
+    base = "https://raw.githubusercontent.com/teneobot-lab/tofhub/main/",
 }
 
 -- urutan penting: modul belakang memakai Hub.* dari modul depan
