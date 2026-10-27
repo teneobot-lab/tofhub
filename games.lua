@@ -21,15 +21,22 @@ return function(Hub)
             defaults = {},
             -- preset: kumpulan nilai Cfg yang diterapkan sekaligus
             presets = {
-                ["ESP saja"] = {
-                    Aimlock = false, Silent = false, KAim = false, KSilent = false,
-                    Speed = false, Fly = false, Noclip = false,
-                    ESPKiller = true, ESPSurv = true,
+                ["ESP lengkap"] = {
+                    ESPKiller = true, ESPSurv = true, ESPZombie = true,
+                    ObjGen = true, ObjHook = true, ObjGate = true, ObjPallet = true, ObjWindow = true,
+                },
+                ["ESP minimal"] = {
+                    ESPKiller = true, ESPSurv = false, ESPZombie = false,
+                    ObjGen = true, ObjHook = false, ObjGate = false, ObjPallet = false, ObjWindow = false,
+                },
+                ["Hemat performa"] = {
+                    PerfMode = true, PerfShadows = true, PerfEffects = true, PerfQuality = true,
+                    PerfTerrain = true, PerfESP = true, PerfUI = true,
                 },
                 ["Semua mati"] = {
-                    Aimlock = false, Silent = false, KAim = false, KSilent = false,
-                    Speed = false, Fly = false, Noclip = false, Fullbright = false,
                     ESPKiller = false, ESPSurv = false, ESPZombie = false,
+                    ObjGen = false, ObjHook = false, ObjGate = false, ObjPallet = false, ObjWindow = false,
+                    Fullbright = false, NoFog = false, PerfMode = false,
                 },
             },
         },
