@@ -125,6 +125,20 @@ return function(Hub)
         return false, tostring(e)
     end
 
+    local function applyData(d)
+        local n = 0
+        for k, v in pairs(d) do
+            if k ~= "Ver" and Cfg[k] ~= nil and not volatile[k] then
+                local c = coerce(k, v)
+                if c ~= nil then
+                    Config.set(k, c)
+                    n += 1
+                end
+            end
+        end
+        return n
+    end
+
     function Config.loadProfile(name)
         if not (readfile and isfile) then return false, "readfile tidak didukung" end
         local path = profilePath(name)
@@ -132,13 +146,23 @@ return function(Hub)
         local ok, raw = pcall(readfile, path)
         local d = ok and decodeJSON(raw)
         if not d then return false, "profil rusak atau dibuat versi yang lebih baru" end
-        for k, v in pairs(d) do
-            if k ~= "Ver" and Cfg[k] ~= nil and not volatile[k] then
-                local c = coerce(k, v)
-                if c ~= nil then Config.set(k, c) end
-            end
-        end
+        applyData(d)
         return true
+    end
+
+    -- cadangan lewat teks JSON (clipboard)
+    function Config.export() return encode() end
+
+    function Config.import(raw)
+        local d = decodeJSON(tostring(raw or ""))
+        if not d then return false, "data tidak valid atau versi lebih baru" end
+        return true, applyData(d)
+    end
+
+    function Config.resetAll()
+        for k, v in pairs(Default) do
+            if not volatile[k] then Config.set(k, v) end
+        end
     end
 
     function Config.listProfiles()
