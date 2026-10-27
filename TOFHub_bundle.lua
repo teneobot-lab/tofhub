@@ -15,7 +15,7 @@ local SOURCE = {
 -- urutan penting: modul belakang memakai Hub.* dari modul depan
 local ORDER = {
     "hub", "games", "config", "cats", "ui", "pool", "index", "roles",
-    "esp_players", "esp_objects", "esp_zombies", "ui_tabs",
+    "esp_players", "esp_objects", "esp_zombies", "world", "ui_tabs",
 }
 -- gagal di salah satu ini = hentikan semuanya
 local CRITICAL = { hub = true, games = true, config = true, cats = true }
@@ -184,15 +184,22 @@ return function(Hub)
             defaults = {},
             -- preset: kumpulan nilai Cfg yang diterapkan sekaligus
             presets = {
-                ["ESP saja"] = {
-                    Aimlock = false, Silent = false, KAim = false, KSilent = false,
-                    Speed = false, Fly = false, Noclip = false,
-                    ESPKiller = true, ESPSurv = true,
+                ["ESP lengkap"] = {
+                    ESPKiller = true, ESPSurv = true, ESPZombie = true,
+                    ObjGen = true, ObjHook = true, ObjGate = true, ObjPallet = true, ObjWindow = true,
+                },
+                ["ESP minimal"] = {
+                    ESPKiller = true, ESPSurv = false, ESPZombie = false,
+                    ObjGen = true, ObjHook = false, ObjGate = false, ObjPallet = false, ObjWindow = false,
+                },
+                ["Hemat performa"] = {
+                    PerfMode = true, PerfShadows = true, PerfEffects = true, PerfQuality = true,
+                    PerfTerrain = true, PerfESP = true, PerfUI = true,
                 },
                 ["Semua mati"] = {
-                    Aimlock = false, Silent = false, KAim = false, KSilent = false,
-                    Speed = false, Fly = false, Noclip = false, Fullbright = false,
                     ESPKiller = false, ESPSurv = false, ESPZombie = false,
+                    ObjGen = false, ObjHook = false, ObjGate = false, ObjPallet = false, ObjWindow = false,
+                    Fullbright = false, NoFog = false, PerfMode = false,
                 },
             },
         },
@@ -341,6 +348,20 @@ return function(Hub)
         return false, tostring(e)
     end
 
+    local function applyData(d)
+        local n = 0
+        for k, v in pairs(d) do
+            if k ~= "Ver" and Cfg[k] ~= nil and not volatile[k] then
+                local c = coerce(k, v)
+                if c ~= nil then
+                    Config.set(k, c)
+                    n += 1
+                end
+            end
+        end
+        return n
+    end
+
     function Config.loadProfile(name)
         if not (readfile and isfile) then return false, "readfile tidak didukung" end
         local path = profilePath(name)
@@ -348,13 +369,23 @@ return function(Hub)
         local ok, raw = pcall(readfile, path)
         local d = ok and decodeJSON(raw)
         if not d then return false, "profil rusak atau dibuat versi yang lebih baru" end
-        for k, v in pairs(d) do
-            if k ~= "Ver" and Cfg[k] ~= nil and not volatile[k] then
-                local c = coerce(k, v)
-                if c ~= nil then Config.set(k, c) end
-            end
-        end
+        applyData(d)
         return true
+    end
+
+    -- cadangan lewat teks JSON (clipboard)
+    function Config.export() return encode() end
+
+    function Config.import(raw)
+        local d = decodeJSON(tostring(raw or ""))
+        if not d then return false, "data tidak valid atau versi lebih baru" end
+        return true, applyData(d)
+    end
+
+    function Config.resetAll()
+        for k, v in pairs(Default) do
+            if not volatile[k] then Config.set(k, v) end
+        end
     end
 
     function Config.listProfiles()
@@ -444,33 +475,35 @@ end
 end)()
 
 EMBEDDED["ui"] = (function()
--- ui.lua | mesin UI: sidebar + pencarian fitur + kartu kontrol
+-- ui.lua | mesin UI: sidebar, pencarian, grup lipat, color picker, jendela dapat diubah ukurannya
 -- Modul lain menambah halaman lewat:
 --   Hub.ui(function(UI)
---       local p = UI.page("Nama Tab", "🙂")   -- ikon opsional
---       p:Section("Judul grup")
+--       local p = UI.page("Nama Tab", 6)        -- angka = urutan di sidebar
+--       p:Section("Judul grup")                  -- grup lipat (tertutup sampai diketuk)
 --       p:Toggle("Label", "KeyCfg")
 --   end)
--- Semua kontrol terikat ke Cfg lewat Config.set / Config.watch, jadi muat profil otomatis memperbarui tampilan.
--- Kontrol yang punya label ikut terindeks untuk pencarian (halaman + judul grup + label).
+-- Kontrol berlabel ikut terindeks untuk pencarian (halaman + judul grup + label).
 return function(Hub)
     local UIS = game:GetService("UserInputService")
     local TS = game:GetService("TweenService")
     local Cfg, Config, U = Hub.Cfg, Hub.Config, Hub.util
 
-    Config.declare({ UIAccent = Color3.fromRGB(0, 170, 255) })
+    Config.declare({ UIAccent = Color3.fromRGB(94, 140, 255), UIW = 0, UIH = 0 })
 
     local T = {
-        bg = Color3.fromRGB(14, 14, 18),
-        side = Color3.fromRGB(20, 20, 26),
-        surface = Color3.fromRGB(28, 28, 36),
-        raised = Color3.fromRGB(40, 40, 52),
-        line = Color3.fromRGB(46, 46, 60),
-        text = Color3.fromRGB(238, 238, 244),
-        muted = Color3.fromRGB(140, 140, 158),
-        danger = Color3.fromRGB(190, 55, 55),
+        bg = Color3.fromRGB(13, 13, 17),
+        side = Color3.fromRGB(17, 17, 22),
+        surface = Color3.fromRGB(23, 23, 30),
+        raised = Color3.fromRGB(34, 34, 45),
+        line = Color3.fromRGB(42, 42, 55),
+        text = Color3.fromRGB(232, 232, 240),
+        muted = Color3.fromRGB(128, 128, 146),
+        danger = Color3.fromRGB(214, 76, 76),
+        white = Color3.new(1, 1, 1),
         accent = Cfg.UIAccent,
     }
+
+    local MIN_W, MIN_H = 340, 230
 
     local UI = { pages = {}, order = {}, rows = {}, dyn = {}, accentFns = {}, current = nil, T = T }
     Hub.UI = UI
@@ -494,10 +527,13 @@ return function(Hub)
         return o
     end
     local function corner(o, r)
-        new("UICorner", { CornerRadius = UDim.new(0, r or 6) }, o)
+        new("UICorner", { CornerRadius = UDim.new(0, r or 8) }, o)
     end
-    local function stroke(o, col, tr)
-        return new("UIStroke", { Color = col or T.line, Thickness = 1, Transparency = tr or 0.35, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o)
+    local function stroke(o, col, tr, th)
+        return new("UIStroke", {
+            Color = col or T.line, Thickness = th or 1, Transparency = tr or 0.3,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        }, o)
     end
     local function label(parent, text, size, color, props)
         local l = new("TextLabel", {
@@ -509,8 +545,13 @@ return function(Hub)
         end
         return l
     end
+    local function lowFx() return Cfg.PerfMode == true and Cfg.PerfUI == true end
     local function tween(o, props, t)
-        TS:Create(o, TweenInfo.new(t or 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+        if lowFx() then
+            for k, v in pairs(props) do o[k] = v end
+            return
+        end
+        TS:Create(o, TweenInfo.new(t or 0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
     end
     local function isPress(i)
         return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
@@ -522,17 +563,25 @@ return function(Hub)
     --========================================================
     -- JENDELA
     --========================================================
-    local gui, win, float, navSf, pagesHolder, resultsSf, emptyLbl, headerLbl, searchBox, toastLbl
+    local gui, win, side, content, float, navSf, pagesHolder, resultsSf, emptyLbl, headerLbl, searchBox
+    local toastFrame, toastLbl
     local resHeaders = {}
     local toastToken = 0
 
+    local function screen()
+        local s = gui and gui.AbsoluteSize or Vector2.zero
+        if s.X < 50 or s.Y < 50 then s = workspace.CurrentCamera.ViewportSize end
+        return s
+    end
+
     function UI.toast(text)
-        if not toastLbl then return end
+        if not toastFrame then return end
         toastToken += 1
         local t = toastToken
         toastLbl.Text = tostring(text)
-        task.delay(2.5, function()
-            if t == toastToken and toastLbl and toastLbl.Parent then toastLbl.Text = "" end
+        toastFrame.Visible = true
+        task.delay(2.2, function()
+            if t == toastToken and toastFrame and toastFrame.Parent then toastFrame.Visible = false end
         end)
     end
 
@@ -542,16 +591,37 @@ return function(Hub)
         float.Visible = not show
     end
 
+    local function defaultSize()
+        local sc = screen()
+        return math.min(600, math.floor(sc.X * 0.94)), math.min(370, math.floor(sc.Y * 0.88))
+    end
+
+    function UI.resetWindow()
+        local sc = screen()
+        local W, H = defaultSize()
+        win.Size = UDim2.fromOffset(W, H)
+        win.Position = UDim2.fromOffset(math.floor((sc.X - W) / 2), math.floor((sc.Y - H) / 2))
+        Config.set("UIW", 0)
+        Config.set("UIH", 0)
+    end
+
     --========================================================
     -- PENCARIAN: kontrol yang cocok dipindah sementara ke daftar hasil, lalu dikembalikan
     --========================================================
+    local function setCard(e, card)
+        e.row.BackgroundTransparency = card and 0 or 1
+        e.stroke.Enabled = card
+        if e.divider then e.divider.Visible = not card end
+    end
+
     local function clearSearch()
         for _, h in ipairs(resHeaders) do pcall(function() h:Destroy() end) end
         resHeaders = {}
         for _, e in ipairs(UI.rows) do
             if e.row.Parent == resultsSf then
-                e.row.Parent = e.page.sf
+                e.row.Parent = e.parent
                 e.row.LayoutOrder = e.order
+                setCard(e, e.parent == e.page.sf)
             end
         end
         resultsSf.Visible = false
@@ -587,134 +657,159 @@ return function(Hub)
                 if key ~= lastKey then
                     n += 1
                     lastKey = key
-                    local h = label(resultsSf, key, 11, T.muted, {
-                        Size = UDim2.new(1, 0, 0, 18), LayoutOrder = n, Font = Enum.Font.GothamBold,
+                    resHeaders[#resHeaders + 1] = label(resultsSf, key, 11, T.muted, {
+                        Size = UDim2.new(1, 0, 0, 20), LayoutOrder = n, Font = Enum.Font.GothamMedium,
                     })
-                    resHeaders[#resHeaders + 1] = h
                 end
                 n += 1
                 e.row.Parent = resultsSf
                 e.row.LayoutOrder = n
+                setCard(e, true)
             end
         end
         emptyLbl.Visible = (n == 0)
     end
 
-    local function build()
-        local vp = workspace.CurrentCamera.ViewportSize
-        local W = math.min(560, math.floor(vp.X * 0.94))
-        local H = math.min(340, math.floor(vp.Y * 0.88))
-        local SBW = (W < 440) and 104 or 134
+    local function applyLayout()
+        if not (win and side and content) then return end
+        local sbw = (win.AbsoluteSize.X < 460) and 96 or 140
+        side.Size = UDim2.new(0, sbw, 1, 0)
+        content.Position = UDim2.fromOffset(sbw, 0)
+        content.Size = UDim2.new(1, -sbw, 1, 0)
+    end
 
+    local function build()
         gui = new("ScreenGui", {
-            Name = "TOFHubUI", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 10000,
+            Name = "TOFHubUI", ResetOnSpawn = false, IgnoreGuiInset = false, DisplayOrder = 10000,
             ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         }, Hub.container)
 
+        local sc = screen()
+        local dW, dH = defaultSize()
+        local W = (Cfg.UIW > 0) and math.clamp(Cfg.UIW, MIN_W, sc.X) or dW
+        local H = (Cfg.UIH > 0) and math.clamp(Cfg.UIH, MIN_H, sc.Y) or dH
+
         win = new("Frame", {
             Size = UDim2.fromOffset(W, H),
-            Position = UDim2.fromOffset(math.floor((vp.X - W) / 2), math.floor((vp.Y - H) / 2)),
+            Position = UDim2.fromOffset(math.floor((sc.X - W) / 2), math.floor((sc.Y - H) / 2)),
             BackgroundColor3 = T.bg, BorderSizePixel = 0, Active = true, ClipsDescendants = true,
         }, gui)
-        corner(win, 12)
-        stroke(win, T.line, 0.2)
+        corner(win, 14)
+        stroke(win, T.line, 0.1)
 
-        -- bar atas (tarik untuk memindahkan)
-        local top = new("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = T.side, BorderSizePixel = 0 }, win)
-        local logo = label(top, "◆  TOF Hub", 14, T.accent, {
-            Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -90, 1, 0), Font = Enum.Font.GothamBold,
+        ------------------------------------------------------------
+        -- BAR ATAS
+        ------------------------------------------------------------
+        local top = new("Frame", { Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = T.side, BorderSizePixel = 0 }, win)
+        local dotMark = new("Frame", {
+            Size = UDim2.fromOffset(8, 8), Position = UDim2.new(0, 14, 0.5, -4), BackgroundColor3 = T.accent, BorderSizePixel = 0,
+        }, top)
+        corner(dotMark, 4)
+        UI.accent(function() dotMark.BackgroundColor3 = T.accent end)
+        label(top, "TOF Hub", 13, T.text, {
+            Position = UDim2.fromOffset(30, 0), Size = UDim2.new(1, -110, 1, 0), Font = Enum.Font.GothamBold,
         })
-        UI.accent(function() logo.TextColor3 = T.accent end)
-        local function topBtn(text, xOff, color)
+        local function topBtn(text, xOff, color, size)
             return new("TextButton", {
-                Text = text, Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, xOff, 0, 0),
-                BackgroundTransparency = 1, TextColor3 = color or T.muted, TextSize = 16, Font = Enum.Font.GothamBold,
+                Text = text, Size = UDim2.fromOffset(34, 34), Position = UDim2.new(1, xOff, 0, 0),
+                BackgroundTransparency = 1, TextColor3 = color or T.muted, TextSize = size or 18, Font = Enum.Font.GothamMedium,
             }, top)
         end
-        local minBtn = topBtn("–", -60)
-        local closeBtn = topBtn("✕", -30, T.danger)
+        local minBtn = topBtn("–", -68)
+        local closeBtn = topBtn("×", -34, T.danger, 22)
 
         top.InputBegan:Connect(function(i)
             if not isPress(i) then return end
             local sp, sw = i.Position, win.Position
             startDrag(function(pos)
-                local v = workspace.CurrentCamera.ViewportSize
-                local x = math.clamp(sw.X.Offset + (pos.X - sp.X), -win.AbsoluteSize.X + 60, v.X - 60)
-                local y = math.clamp(sw.Y.Offset + (pos.Y - sp.Y), 0, v.Y - 30)
+                local v = screen()
+                local x = math.clamp(sw.X.Offset + (pos.X - sp.X), -win.AbsoluteSize.X + 70, v.X - 70)
+                local y = math.clamp(sw.Y.Offset + (pos.Y - sp.Y), 0, v.Y - 34)
                 win.Position = UDim2.fromOffset(x, y)
             end)
         end)
 
         local body = new("Frame", {
-            Position = UDim2.fromOffset(0, 30), Size = UDim2.new(1, 0, 1, -30), BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(0, 34), Size = UDim2.new(1, 0, 1, -34), BackgroundTransparency = 1,
         }, win)
 
         ------------------------------------------------------------
         -- SIDEBAR
         ------------------------------------------------------------
-        local side = new("Frame", {
-            Size = UDim2.new(0, SBW, 1, 0), BackgroundColor3 = T.side, BorderSizePixel = 0,
-        }, body)
+        side = new("Frame", { Size = UDim2.new(0, 140, 1, 0), BackgroundColor3 = T.side, BorderSizePixel = 0 }, body)
         new("Frame", {
             Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, -1, 0, 0), BackgroundColor3 = T.line, BorderSizePixel = 0,
         }, side)
 
         local sWrap = new("Frame", {
-            Position = UDim2.fromOffset(8, 8), Size = UDim2.new(1, -16, 0, 30), BackgroundColor3 = T.raised, BorderSizePixel = 0,
+            Position = UDim2.fromOffset(10, 10), Size = UDim2.new(1, -20, 0, 32), BackgroundColor3 = T.raised, BorderSizePixel = 0,
         }, side)
-        corner(sWrap, 8)
+        corner(sWrap, 10)
+        -- ikon kaca pembesar (digambar dari frame, tanpa teks)
+        local lens = new("Frame", {
+            Size = UDim2.fromOffset(10, 10), Position = UDim2.fromOffset(11, 9), BackgroundTransparency = 1,
+        }, sWrap)
+        corner(lens, 5)
+        new("UIStroke", { Color = T.muted, Thickness = 1.5 }, lens)
+        new("Frame", {
+            Size = UDim2.fromOffset(6, 2), Position = UDim2.fromOffset(19, 22), Rotation = 45,
+            BackgroundColor3 = T.muted, BorderSizePixel = 0,
+        }, sWrap)
         searchBox = new("TextBox", {
-            Position = UDim2.fromOffset(8, 0), Size = UDim2.new(1, -30, 1, 0), BackgroundTransparency = 1,
-            Text = "", PlaceholderText = "🔍 Cari fitur", PlaceholderColor3 = T.muted, TextColor3 = T.text,
-            Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
-            ClearTextOnFocus = false,
+            Position = UDim2.fromOffset(30, 0), Size = UDim2.new(1, -52, 1, 0), BackgroundTransparency = 1,
+            Text = "", TextColor3 = T.text, Font = Enum.Font.Gotham, TextSize = 13,
+            TextXAlignment = Enum.TextXAlignment.Left, ClearTextOnFocus = false,
         }, sWrap)
         local clearBtn = new("TextButton", {
-            Text = "✕", Size = UDim2.fromOffset(22, 30), Position = UDim2.new(1, -24, 0, 0),
-            BackgroundTransparency = 1, TextColor3 = T.muted, TextSize = 12, Font = Enum.Font.GothamBold, Visible = false,
+            Text = "×", Size = UDim2.fromOffset(22, 32), Position = UDim2.new(1, -24, 0, 0),
+            BackgroundTransparency = 1, TextColor3 = T.muted, TextSize = 18, Font = Enum.Font.GothamMedium, Visible = false,
         }, sWrap)
         clearBtn.Activated:Connect(function() searchBox.Text = "" end)
 
         navSf = new("ScrollingFrame", {
-            Position = UDim2.fromOffset(0, 46), Size = UDim2.new(1, 0, 1, -66), BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(0, 52), Size = UDim2.new(1, 0, 1, -56), BackgroundTransparency = 1,
             BorderSizePixel = 0, ScrollBarThickness = 0, CanvasSize = UDim2.new(0, 0, 0, 0),
             AutomaticCanvasSize = Enum.AutomaticSize.Y,
         }, side)
-        new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, navSf)
-        new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingTop = UDim.new(0, 2) }, navSf)
-
-        label(side, "modular • v5", 10, T.muted, {
-            Position = UDim2.new(0, 12, 1, -18), Size = UDim2.new(1, -24, 0, 14),
-        })
+        new("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, navSf)
+        new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2) }, navSf)
 
         ------------------------------------------------------------
         -- KONTEN
         ------------------------------------------------------------
-        local content = new("Frame", {
-            Position = UDim2.fromOffset(SBW, 0), Size = UDim2.new(1, -SBW, 1, 0), BackgroundTransparency = 1,
+        content = new("Frame", {
+            Position = UDim2.fromOffset(140, 0), Size = UDim2.new(1, -140, 1, 0), BackgroundTransparency = 1,
         }, body)
-        headerLbl = label(content, "", 16, T.text, {
-            Position = UDim2.fromOffset(12, 4), Size = UDim2.new(1, -24, 0, 26), Font = Enum.Font.GothamBold,
+        headerLbl = label(content, "", 17, T.text, {
+            Position = UDim2.fromOffset(16, 8), Size = UDim2.new(1, -32, 0, 26), Font = Enum.Font.GothamBold,
         })
         pagesHolder = new("Frame", {
-            Position = UDim2.fromOffset(0, 32), Size = UDim2.new(1, 0, 1, -50), BackgroundTransparency = 1,
+            Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42), BackgroundTransparency = 1,
         }, content)
-        toastLbl = label(content, "", 11, T.muted, {
-            Position = UDim2.new(0, 12, 1, -16), Size = UDim2.new(1, -24, 0, 14),
-        })
 
         resultsSf = new("ScrollingFrame", {
             Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
             ScrollBarImageColor3 = T.raised, CanvasSize = UDim2.new(0, 0, 0, 0),
             AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
         }, pagesHolder)
-        new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, resultsSf)
+        new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, resultsSf)
         new("UIPadding", {
-            PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+            PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 28), PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14),
         }, resultsSf)
         emptyLbl = label(pagesHolder, "Tidak ada fitur yang cocok", 13, T.muted, {
-            Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 20), TextXAlignment = Enum.TextXAlignment.Center,
+            Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 24), TextXAlignment = Enum.TextXAlignment.Center,
             Visible = false,
+        })
+
+        toastFrame = new("Frame", {
+            AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(0, 30),
+            AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = T.raised, BorderSizePixel = 0, Visible = false, ZIndex = 20,
+        }, content)
+        corner(toastFrame, 15)
+        stroke(toastFrame, T.line, 0.2)
+        new("UIPadding", { PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16) }, toastFrame)
+        toastLbl = label(toastFrame, "", 12, T.text, {
+            Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, ZIndex = 21,
         })
 
         searchBox:GetPropertyChangedSignal("Text"):Connect(function()
@@ -723,11 +818,42 @@ return function(Hub)
         end)
 
         ------------------------------------------------------------
+        -- PENGUBAH UKURAN (sudut kanan bawah)
+        ------------------------------------------------------------
+        local grip = new("TextButton", {
+            Text = "", Size = UDim2.fromOffset(26, 26), AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1, ZIndex = 30,
+        }, win)
+        for _, p in ipairs({ { 17, 17 }, { 10, 17 }, { 17, 10 } }) do
+            local d = new("Frame", {
+                Size = UDim2.fromOffset(3, 3), Position = UDim2.fromOffset(p[1], p[2]), BackgroundColor3 = T.muted,
+                BorderSizePixel = 0, ZIndex = 31,
+            }, grip)
+            corner(d, 2)
+        end
+        grip.InputBegan:Connect(function(i)
+            if not isPress(i) then return end
+            local sp, sz = i.Position, win.AbsoluteSize
+            startDrag(function(pos)
+                local v, pa = screen(), win.AbsolutePosition
+                local w = math.clamp(sz.X + (pos.X - sp.X), MIN_W, math.max(MIN_W, v.X - pa.X))
+                local h = math.clamp(sz.Y + (pos.Y - sp.Y), MIN_H, math.max(MIN_H, v.Y - pa.Y))
+                win.Size = UDim2.fromOffset(w, h)
+            end, function()
+                Config.set("UIW", math.floor(win.AbsoluteSize.X))
+                Config.set("UIH", math.floor(win.AbsoluteSize.Y))
+            end)
+        end)
+
+        win:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyLayout)
+        applyLayout()
+
+        ------------------------------------------------------------
         -- TOMBOL MELAYANG (saat diminimalkan)
         ------------------------------------------------------------
         float = new("TextButton", {
             Text = "T", Size = UDim2.fromOffset(44, 44), Position = UDim2.fromOffset(12, 90),
-            BackgroundColor3 = T.bg, TextColor3 = T.accent, TextSize = 20, Font = Enum.Font.GothamBold,
+            BackgroundColor3 = T.bg, TextColor3 = T.accent, TextSize = 18, Font = Enum.Font.GothamBold,
             Visible = false, AutoButtonColor = false, BorderSizePixel = 0,
         }, gui)
         corner(float, 22)
@@ -781,7 +907,7 @@ return function(Hub)
             local on = (p == UI.current)
             p.sf.Visible = on and not searching
             p.tab.BackgroundColor3 = T.accent
-            p.tab.BackgroundTransparency = on and 0.82 or 1
+            p.tab.BackgroundTransparency = on and 0.85 or 1
             p.bar.Visible = on
             p.bar.BackgroundColor3 = T.accent
             p.txt.TextColor3 = on and T.text or T.muted
@@ -798,85 +924,147 @@ return function(Hub)
     end
     UI.select = selectPage
 
-    function UI.page(name, icon)
+    function UI.page(name, order)
         if UI.pages[name] then return UI.pages[name] end
         local sf = new("ScrollingFrame", {
             Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
             ScrollBarThickness = 3, ScrollBarImageColor3 = T.raised, CanvasSize = UDim2.new(0, 0, 0, 0),
             AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
         }, pagesHolder)
-        new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, sf)
+        new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, sf)
         new("UIPadding", {
-            PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+            PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 28), PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14),
         }, sf)
 
+        local ord = order or (100 + #UI.order)
         local tab = new("TextButton", {
             Text = "", Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = T.accent, BackgroundTransparency = 1,
-            BorderSizePixel = 0, AutoButtonColor = false, LayoutOrder = #UI.order + 1,
+            BorderSizePixel = 0, AutoButtonColor = false, LayoutOrder = ord,
         }, navSf)
-        corner(tab, 8)
+        corner(tab, 9)
         local bar = new("Frame", {
-            Size = UDim2.fromOffset(3, 18), Position = UDim2.new(0, 0, 0.5, -9), BackgroundColor3 = T.accent,
+            Size = UDim2.fromOffset(3, 16), Position = UDim2.new(0, 0, 0.5, -8), BackgroundColor3 = T.accent,
             BorderSizePixel = 0, Visible = false,
         }, tab)
         corner(bar, 2)
-        if icon then
-            label(tab, icon, 15, T.text, {
-                Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(22, 34), TextXAlignment = Enum.TextXAlignment.Center,
-            })
-        end
         local txt = label(tab, name, 13, T.muted, {
-            Position = UDim2.fromOffset(icon and 34 or 12, 0), Size = UDim2.new(1, icon and -38 or -16, 1, 0),
+            Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -20, 1, 0),
             Font = Enum.Font.GothamMedium, TextTruncate = Enum.TextTruncate.AtEnd,
         })
 
-        local page = setmetatable({ name = name, sf = sf, tab = tab, bar = bar, txt = txt, n = 0, section = "" }, Page)
+        local page = setmetatable({
+            name = name, sf = sf, tab = tab, bar = bar, txt = txt, ord = ord,
+            n = 0, nInner = 0, holder = sf, section = "",
+        }, Page)
         UI.pages[name] = page
         UI.order[#UI.order + 1] = page
         tab.Activated:Connect(function() selectPage(page) end)
         return page
     end
 
-    -- kartu dasar; `text` (opsional) membuat kontrol ikut terindeks untuk pencarian
+    -- kartu / baris dasar. Di luar grup tampil sebagai kartu; di dalam grup tampil datar dengan garis pemisah.
     function Page:row(h, text)
-        self.n += 1
+        local inGroup = (self.holder ~= self.sf)
+        local order
+        if inGroup then
+            self.nInner += 1
+            order = self.nInner
+        else
+            self.n += 1
+            order = self.n
+        end
         local r = new("Frame", {
-            Size = UDim2.new(1, 0, 0, h), BackgroundColor3 = T.surface, BorderSizePixel = 0, LayoutOrder = self.n,
-        }, self.sf)
-        corner(r, 8)
-        stroke(r)
+            Size = UDim2.new(1, 0, 0, h), BackgroundColor3 = T.surface, BackgroundTransparency = inGroup and 1 or 0,
+            BorderSizePixel = 0, LayoutOrder = order,
+        }, self.holder)
+        corner(r, 10)
+        local st = stroke(r)
+        st.Enabled = not inGroup
+        local div
+        if inGroup then
+            div = new("Frame", {
+                Size = UDim2.new(1, -28, 0, 1), Position = UDim2.fromOffset(14, 0), BackgroundColor3 = T.line,
+                BorderSizePixel = 0,
+            }, r)
+        end
         if text then
-            UI.rows[#UI.rows + 1] = { row = r, page = self, section = self.section, text = tostring(text), order = self.n }
+            UI.rows[#UI.rows + 1] = {
+                row = r, page = self, section = self.section, text = tostring(text),
+                parent = self.holder, order = order, stroke = st, divider = div,
+            }
         end
         return r
     end
 
-    function Page:Section(text)
+    -- grup lipat: tertutup sampai header diketuk
+    function Page:Section(text, open)
         self.n += 1
-        self.section = text
-        local l = label(self.sf, text:upper(), 11, T.accent, {
-            Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold, LayoutOrder = self.n,
+        local grp = new("Frame", {
+            Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = T.surface,
+            BorderSizePixel = 0, LayoutOrder = self.n,
+        }, self.sf)
+        corner(grp, 10)
+        stroke(grp)
+        new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, grp)
+        local head = new("TextButton", {
+            Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, LayoutOrder = 1,
+        }, grp)
+        label(head, text, 13, T.text, {
+            Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -50, 1, 0), Font = Enum.Font.GothamMedium,
         })
-        UI.accent(function() l.TextColor3 = T.accent end)
+        local chev = label(head, "›", 22, T.muted, {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -20, 0.5, -1), Size = UDim2.fromOffset(20, 24),
+            TextXAlignment = Enum.TextXAlignment.Center, Font = Enum.Font.GothamMedium,
+        })
+        local body = new("Frame", {
+            Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+            LayoutOrder = 2, Visible = false,
+        }, grp)
+        new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, body)
+
+        local isOpen = false
+        local function set(o, instant)
+            isOpen = o
+            body.Visible = o
+            chev.TextColor3 = o and T.accent or T.muted
+            if instant then
+                chev.Rotation = o and 90 or 0
+            else
+                tween(chev, { Rotation = o and 90 or 0 })
+            end
+        end
+        UI.accent(function() chev.TextColor3 = isOpen and T.accent or T.muted end)
+        head.Activated:Connect(function() set(not isOpen) end)
+        set(open == true, true)
+
+        self.holder = body
+        self.nInner = 0
+        self.section = text
+    end
+
+    -- kembali ke tingkat halaman (setelah grup)
+    function Page:Root()
+        self.holder = self.sf
+        self.section = ""
     end
 
     function Page:Toggle(text, key)
-        local r = self:row(36, text)
-        label(r, text, 13, T.text, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -72, 1, 0) })
+        local r = self:row(42, text)
+        label(r, text, 13, T.text, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -76, 1, 0) })
         local sw = new("Frame", {
-            Size = UDim2.fromOffset(40, 22), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
+            Size = UDim2.fromOffset(38, 22), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0),
             BorderSizePixel = 0,
         }, r)
         corner(sw, 11)
         local dot = new("Frame", {
-            Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+            Size = UDim2.fromOffset(16, 16), BackgroundColor3 = T.white, BorderSizePixel = 0,
         }, sw)
-        corner(dot, 9)
+        corner(dot, 8)
         local first = true
         local function paint()
             local on = Cfg[key] == true
             local col = on and T.accent or T.raised
-            local pos = UDim2.fromOffset(on and 20 or 2, 2)
+            local pos = UDim2.fromOffset(on and 19 or 3, 3)
             if first then
                 sw.BackgroundColor3, dot.Position = col, pos
                 first = false
@@ -893,34 +1081,31 @@ return function(Hub)
     end
 
     function Page:Slider(text, key, min, max, step, suffix)
-        local r = self:row(50, text)
-        label(r, text, 13, T.text, { Position = UDim2.fromOffset(12, 5), Size = UDim2.new(1, -100, 0, 18) })
-        local chip = new("Frame", {
-            Size = UDim2.fromOffset(70, 20), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 5),
-            BackgroundColor3 = T.raised, BorderSizePixel = 0,
-        }, r)
-        corner(chip, 6)
-        local vl = label(chip, "", 12, T.text, {
-            Size = UDim2.new(1, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Center, Font = Enum.Font.GothamMedium,
+        local r = self:row(56, text)
+        label(r, text, 13, T.text, { Position = UDim2.fromOffset(14, 7), Size = UDim2.new(1, -110, 0, 18) })
+        local vl = label(r, "", 12, T.accent, {
+            Position = UDim2.new(1, -94, 0, 7), Size = UDim2.fromOffset(80, 18), TextXAlignment = Enum.TextXAlignment.Right,
+            Font = Enum.Font.GothamMedium,
         })
         local track = new("Frame", {
-            Position = UDim2.new(0, 12, 0, 36), Size = UDim2.new(1, -24, 0, 6), BackgroundColor3 = T.raised, BorderSizePixel = 0,
+            Position = UDim2.new(0, 14, 0, 38), Size = UDim2.new(1, -28, 0, 4), BackgroundColor3 = T.raised, BorderSizePixel = 0,
         }, r)
-        corner(track, 3)
+        corner(track, 2)
         local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = T.accent, BorderSizePixel = 0 }, track)
-        corner(fill, 3)
+        corner(fill, 2)
         local knob = new("Frame", {
-            Size = UDim2.fromOffset(16, 16), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
+            Size = UDim2.fromOffset(14, 14), BackgroundColor3 = T.white, BorderSizePixel = 0,
         }, track)
-        corner(knob, 8)
+        corner(knob, 7)
 
         local function paint()
             local v = tonumber(Cfg[key]) or min
             local a = math.clamp((v - min) / (max - min), 0, 1)
             fill.Size = UDim2.new(a, 0, 1, 0)
-            knob.Position = UDim2.new(a, -8, 0.5, -8)
+            knob.Position = UDim2.new(a, -7, 0.5, -7)
             vl.Text = ("%g%s"):format(v, suffix or "")
             fill.BackgroundColor3 = T.accent
+            vl.TextColor3 = T.accent
         end
         paint()
         UI.accent(paint)
@@ -935,11 +1120,10 @@ return function(Hub)
         end
 
         local hit = new("TextButton", {
-            Text = "", BackgroundTransparency = 1, Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 26),
+            Text = "", BackgroundTransparency = 1, Position = UDim2.new(0, 0, 0, 26), Size = UDim2.new(1, 0, 0, 30),
         }, r)
         hit.InputBegan:Connect(function(i)
             if not isPress(i) then return end
-            -- pemilik gulir bisa halaman biasa atau daftar hasil pencarian
             local scroller = r:FindFirstAncestorWhichIsA("ScrollingFrame")
             if scroller then scroller.ScrollingEnabled = false end
             setFrom(i.Position.X)
@@ -949,46 +1133,163 @@ return function(Hub)
         end)
     end
 
+    ----------------------------------------------------------------
+    -- COLOR PICKER: ketuk kotak warna untuk membuka palet (saturasi/kecerahan + hue + warna cepat)
+    ----------------------------------------------------------------
+    local QUICK = {
+        Color3.fromRGB(235, 64, 52), Color3.fromRGB(255, 145, 36), Color3.fromRGB(255, 214, 10),
+        Color3.fromRGB(52, 199, 89), Color3.fromRGB(50, 200, 220), Color3.fromRGB(10, 132, 255),
+        Color3.fromRGB(175, 82, 222), Color3.fromRGB(240, 240, 240),
+    }
+    local PICK_H = 150
+
     function Page:Color(text, key)
-        local r = self:row(38, text)
-        label(r, text, 13, T.text, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -130, 1, 0) })
-        local sw = new("Frame", {
-            Size = UDim2.fromOffset(22, 22), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -94, 0.5, 0),
-            BorderSizePixel = 0,
-        }, r)
-        corner(sw, 6)
-        stroke(sw, T.text, 0.7)
+        local r = self:row(42, text)
+        r.ClipsDescendants = true
+        label(r, text, 13, T.text, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -150, 0, 42) })
+
         local tb = new("TextBox", {
-            Size = UDim2.fromOffset(76, 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
-            BackgroundColor3 = T.raised, TextColor3 = T.text, Font = Enum.Font.Gotham, TextSize = 12,
-            ClearTextOnFocus = false, BorderSizePixel = 0, Text = "",
+            Size = UDim2.fromOffset(76, 26), Position = UDim2.new(1, -90, 0, 8), BackgroundColor3 = T.raised,
+            TextColor3 = T.text, Font = Enum.Font.Gotham, TextSize = 12, ClearTextOnFocus = false,
+            BorderSizePixel = 0, Text = "",
         }, r)
-        corner(tb, 6)
-        local function paint()
-            local c = Cfg[key]
-            if typeof(c) == "Color3" then
-                sw.BackgroundColor3 = c
-                tb.Text = "#" .. U.hex(c)
+        corner(tb, 7)
+        local sw = new("TextButton", {
+            Text = "", Size = UDim2.fromOffset(30, 24), Position = UDim2.new(1, -128, 0, 9), BorderSizePixel = 0,
+            AutoButtonColor = false,
+        }, r)
+        corner(sw, 7)
+        stroke(sw, T.white, 0.75)
+
+        local base = Cfg[key]
+        local h, s, v = 0, 0, 1
+        if typeof(base) == "Color3" then h, s, v = base:ToHSV() end
+
+        local svBox, svCur, hueKnob
+        local function refreshPicker()
+            if svBox then
+                svBox.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+                svCur.Position = UDim2.new(s, 0, 1 - v, 0)
+                hueKnob.Position = UDim2.new(h, 0, 0.5, 0)
             end
         end
+        local function paint()
+            local c = Cfg[key]
+            if typeof(c) ~= "Color3" then return end
+            if Color3.fromHSV(h, s, v) ~= c then h, s, v = c:ToHSV() end
+            sw.BackgroundColor3 = c
+            tb.Text = "#" .. U.hex(c)
+            refreshPicker()
+        end
+        local function push() Config.set(key, Color3.fromHSV(h, s, v)) end
         paint()
         Config.watch(key, paint)
+
         tb.FocusLost:Connect(function()
             local c = U.parseHex(tb.Text)
             if c then Config.set(key, c) else paint() end
         end)
+
+        local built, open = false, false
+        local function buildPicker()
+            built = true
+            local pk = new("Frame", {
+                Position = UDim2.fromOffset(14, 48), Size = UDim2.new(1, -28, 0, PICK_H - 12), BackgroundTransparency = 1,
+            }, r)
+
+            svBox = new("Frame", {
+                Size = UDim2.new(1, 0, 0, 84), BackgroundColor3 = Color3.fromHSV(h, 1, 1), BorderSizePixel = 0,
+                ClipsDescendants = true,
+            }, pk)
+            corner(svBox, 8)
+            local white = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = T.white, BorderSizePixel = 0 }, svBox)
+            new("UIGradient", {
+                Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }),
+            }, white)
+            local black = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0 }, svBox)
+            new("UIGradient", {
+                Rotation = 90,
+                Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) }),
+            }, black)
+            svCur = new("Frame", {
+                Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1,
+            }, svBox)
+            corner(svCur, 7)
+            new("UIStroke", { Color = T.white, Thickness = 2 }, svCur)
+
+            local hb = new("Frame", {
+                Position = UDim2.fromOffset(0, 94), Size = UDim2.new(1, 0, 0, 12), BackgroundColor3 = T.white, BorderSizePixel = 0,
+            }, pk)
+            corner(hb, 6)
+            local keys = {}
+            for k = 0, 6 do keys[#keys + 1] = ColorSequenceKeypoint.new(k / 6, Color3.fromHSV(k / 6, 1, 1)) end
+            new("UIGradient", { Color = ColorSequence.new(keys) }, hb)
+            hueKnob = new("Frame", {
+                Size = UDim2.fromOffset(8, 18), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = T.white, BorderSizePixel = 0,
+            }, hb)
+            corner(hueKnob, 4)
+            new("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 1, Transparency = 0.5 }, hueKnob)
+
+            local quick = new("Frame", {
+                Position = UDim2.fromOffset(0, 114), Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1,
+            }, pk)
+            new("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder,
+            }, quick)
+            for n, c in ipairs(QUICK) do
+                local q = new("TextButton", {
+                    Text = "", Size = UDim2.fromOffset(22, 22), BackgroundColor3 = c, BorderSizePixel = 0,
+                    AutoButtonColor = false, LayoutOrder = n,
+                }, quick)
+                corner(q, 11)
+                q.Activated:Connect(function()
+                    h, s, v = c:ToHSV()
+                    push()
+                end)
+            end
+
+            local function dragWith(i, apply)
+                if not isPress(i) then return end
+                local scroller = r:FindFirstAncestorWhichIsA("ScrollingFrame")
+                if scroller then scroller.ScrollingEnabled = false end
+                apply(i.Position)
+                startDrag(apply, function()
+                    if scroller then scroller.ScrollingEnabled = true end
+                end)
+            end
+            svBox.InputBegan:Connect(function(i)
+                dragWith(i, function(pos)
+                    s = math.clamp((pos.X - svBox.AbsolutePosition.X) / math.max(1, svBox.AbsoluteSize.X), 0, 1)
+                    v = 1 - math.clamp((pos.Y - svBox.AbsolutePosition.Y) / math.max(1, svBox.AbsoluteSize.Y), 0, 1)
+                    push()
+                end)
+            end)
+            hb.InputBegan:Connect(function(i)
+                dragWith(i, function(pos)
+                    h = math.clamp((pos.X - hb.AbsolutePosition.X) / math.max(1, hb.AbsoluteSize.X), 0, 1)
+                    push()
+                end)
+            end)
+            refreshPicker()
+        end
+
+        sw.Activated:Connect(function()
+            open = not open
+            if open and not built then buildPicker() end
+            tween(r, { Size = UDim2.new(1, 0, 0, open and (42 + PICK_H) or 42) })
+        end)
     end
 
     function Page:Choice(text, key, options)
-        local r = self:row(36, text)
-        label(r, text, 13, T.text, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.5, -12, 1, 0) })
+        local r = self:row(42, text)
+        label(r, text, 13, T.text, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0.5, -14, 1, 0) })
         local b = new("TextButton", {
-            Size = UDim2.new(0.5, -22, 0, 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
+            Size = UDim2.new(0.5, -28, 0, 28), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0),
             BackgroundColor3 = T.raised, TextColor3 = T.text, Font = Enum.Font.GothamMedium, TextSize = 12,
             BorderSizePixel = 0, AutoButtonColor = false, Text = "",
         }, r)
-        corner(b, 6)
-        local function paint() b.Text = tostring(Cfg[key]) .. "  ›" end
+        corner(b, 8)
+        local function paint() b.Text = tostring(Cfg[key]) end
         paint()
         Config.watch(key, paint)
         b.Activated:Connect(function()
@@ -997,35 +1298,36 @@ return function(Hub)
         end)
     end
 
-    function Page:Input(text, key, placeholder)
-        local r = self:row(36, text)
-        label(r, text, 13, T.text, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.4, -12, 1, 0) })
+    function Page:Input(text, key)
+        local r = self:row(42, text)
+        label(r, text, 13, T.text, { Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0.4, -14, 1, 0) })
         local tb = new("TextBox", {
-            Size = UDim2.new(0.6, -22, 0, 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
-            BackgroundColor3 = T.raised, TextColor3 = T.text, PlaceholderColor3 = T.muted, Font = Enum.Font.Gotham,
-            TextSize = 12, ClearTextOnFocus = false, BorderSizePixel = 0, Text = "", PlaceholderText = placeholder or "",
+            Size = UDim2.new(0.6, -28, 0, 28), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0),
+            BackgroundColor3 = T.raised, TextColor3 = T.text, Font = Enum.Font.Gotham, TextSize = 12,
+            ClearTextOnFocus = false, BorderSizePixel = 0, Text = "",
         }, r)
-        corner(tb, 6)
+        corner(tb, 8)
+        new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, tb)
         local function paint() tb.Text = tostring(Cfg[key]) end
         paint()
         Config.watch(key, paint)
         tb.FocusLost:Connect(function() Config.set(key, tb.Text) end)
     end
 
-    -- teks bisa string atau fungsi (fungsi diperbarui tiap 0.5 detik saat terlihat)
+    -- teks bisa string atau fungsi (fungsi diperbarui tiap interval UI saat terlihat)
     -- style: true / "danger" = merah, "primary" = warna aksen
     function Page:Button(text, cb, style)
-        local initial = type(text) == "function" and select(2, pcall(text)) or text
-        local r = self:row(36, initial)
-        r.BackgroundTransparency = 1
-        for _, c in ipairs(r:GetChildren()) do
-            if c:IsA("UIStroke") then c:Destroy() end
+        local initial = text
+        if type(text) == "function" then
+            local ok, t = pcall(text)
+            initial = ok and t or ""
         end
+        local r = self:row(48, initial)
         local b = new("TextButton", {
-            Size = UDim2.new(1, 0, 1, 0), TextColor3 = T.text, Font = Enum.Font.GothamMedium, TextSize = 13,
-            BorderSizePixel = 0, AutoButtonColor = true, Text = "",
+            Position = UDim2.fromOffset(14, 8), Size = UDim2.new(1, -28, 1, -16), TextColor3 = T.text,
+            Font = Enum.Font.GothamMedium, TextSize = 13, BorderSizePixel = 0, AutoButtonColor = true, Text = "",
         }, r)
-        corner(b, 8)
+        corner(b, 9)
         local function color()
             if style == true or style == "danger" then
                 b.BackgroundColor3 = T.danger
@@ -1055,16 +1357,11 @@ return function(Hub)
     end
 
     function Page:Info(fn)
-        self.n += 1
-        local r = new("Frame", {
-            Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = T.surface,
-            BorderSizePixel = 0, LayoutOrder = self.n,
-        }, self.sf)
-        corner(r, 8)
-        stroke(r)
+        local r = self:row(0)
+        r.AutomaticSize = Enum.AutomaticSize.Y
         new("UIPadding", {
-            PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8),
-            PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12),
+            PaddingTop = UDim.new(0, 11), PaddingBottom = UDim.new(0, 11),
+            PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14),
         }, r)
         local l = label(r, "", 12, T.text, {
             Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextWrapped = true,
@@ -1088,7 +1385,11 @@ return function(Hub)
             build()
             UI.accent(restyle)
             for _, fn in ipairs(builders) do Hub.safe("ui:builder", fn, UI) end
-            if UI.order[1] then selectPage(UI.order[1]) end
+            local first
+            for _, p in ipairs(UI.order) do
+                if not first or p.ord < first.ord then first = p end
+            end
+            if first then selectPage(first) end
         end,
         update = function()
             if not (win and win.Visible) then return end
@@ -1759,10 +2060,12 @@ return function(Hub)
         end
         table.sort(list, function(a, b) return a.dist < b.dist end)
         local shown, hlCount = {}, 0
+        local hlMax = (Cfg.PerfMode and Cfg.PerfESP) and 5 or 16
         for _, g in ipairs(OBJ_GROUPS) do shown[g.id] = 0 end
-        for _, rec in ipairs(list) do
+        local cap = (Hub.Perf and Hub.Perf.maxObjects) or 1e9
+        for i, rec in ipairs(list) do
             local g = rec.g
-            local ok = pcall(function()
+            local ok = i <= cap and pcall(function()
                 local col = Cfg[g.col]
                 if Cfg[g.label] then
                     Gfx.ensureBB(rec, 200, 18, 2)
@@ -1778,7 +2081,7 @@ return function(Hub)
                 else
                     Gfx.dropBB(rec)
                 end
-                if Cfg[g.chams] and hlCount < 16 then
+                if Cfg[g.chams] and hlCount < hlMax then
                     hlCount += 1
                     Gfx.ensureHL(rec)
                     rec.hl.FillColor, rec.hl.OutlineColor = col, col
@@ -1872,6 +2175,7 @@ return function(Hub)
         end
         table.sort(list, function(a, b) return a.dist < b.dist end)
         local col = Cfg[cat.col]
+        local hlMax = (Cfg.PerfMode and Cfg.PerfESP) and 3 or 8
         for i, rec in ipairs(list) do
             local ok = pcall(function()
                 if Cfg[cat.label] then
@@ -1884,7 +2188,7 @@ return function(Hub)
                 else
                     Gfx.dropBB(rec)
                 end
-                if Cfg[cat.chams] and i <= 8 then
+                if Cfg[cat.chams] and i <= hlMax then
                     Gfx.ensureHL(rec)
                     rec.hl.FillColor, rec.hl.OutlineColor = col, col
                     rec.hl.FillTransparency = Cfg.FillT / 100
@@ -1906,9 +2210,188 @@ return function(Hub)
 end
 end)()
 
+EMBEDDED["world"] = (function()
+-- world.lua | halaman Misc: pencahayaan (Full bright, kabut) dan mode hemat performa untuk perangkat low-end.
+-- Semua perubahan dicatat dan dikembalikan saat dimatikan / unload. Nilai yang sudah diubah game sendiri tidak ditimpa.
+return function(Hub)
+    local Lighting = game:GetService("Lighting")
+    local Cfg, Config = Hub.Cfg, Hub.Config
+
+    Config.declare({
+        Fullbright = false, FBBright = 2, NoFog = false,
+        PerfMode = false, PerfShadows = true, PerfEffects = true, PerfQuality = true,
+        PerfTerrain = true, PerfESP = true, PerfUI = true,
+    })
+
+    --========================================================
+    -- Pengelola perubahan properti (simpan nilai asli, pulihkan hanya jika belum diubah pihak lain)
+    --========================================================
+    local function same(a, b)
+        if type(a) == "number" and type(b) == "number" then return math.abs(a - b) < 1e-3 end
+        return a == b
+    end
+
+    local function setProp(rec, inst, prop, value)
+        local s = rec.saved[inst]
+        if not s then
+            s = {}
+            rec.saved[inst] = s
+        end
+        local e = s[prop]
+        if not e then
+            e = { orig = inst[prop] }
+            s[prop] = e
+        end
+        e.set = value
+        if not same(inst[prop], value) then inst[prop] = value end
+    end
+
+    local function restoreAll(rec)
+        for inst, props in pairs(rec.saved) do
+            for prop, e in pairs(props) do
+                pcall(function()
+                    if same(inst[prop], e.set) then inst[prop] = e.orig end
+                end)
+            end
+        end
+        rec.saved = {}
+    end
+
+    local function postEffects(rec)
+        local function scan(parent)
+            if not parent then return end
+            for _, c in ipairs(parent:GetChildren()) do
+                if c:IsA("PostEffect") and not c:IsA("ColorCorrectionEffect") then
+                    setProp(rec, c, "Enabled", false)
+                end
+            end
+        end
+        scan(Lighting)
+        scan(workspace.CurrentCamera)
+    end
+
+    --========================================================
+    -- Daftar efek: want() = apakah aktif, tick(rec) = terapkan (dipanggil berulang agar tahan terhadap reset oleh game)
+    --========================================================
+    local effects = {
+        {
+            id = "fullbright",
+            want = function() return Cfg.Fullbright end,
+            tick = function(rec)
+                setProp(rec, Lighting, "Brightness", Cfg.FBBright)
+                setProp(rec, Lighting, "Ambient", Color3.new(1, 1, 1))
+                setProp(rec, Lighting, "OutdoorAmbient", Color3.new(1, 1, 1))
+            end,
+        },
+        {
+            id = "nofog",
+            want = function() return Cfg.NoFog end,
+            tick = function(rec)
+                setProp(rec, Lighting, "FogEnd", 1000000)
+                local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+                if atm then
+                    setProp(rec, atm, "Density", 0)
+                    setProp(rec, atm, "Haze", 0)
+                end
+            end,
+        },
+        {
+            id = "perf_shadows",
+            want = function() return Cfg.PerfMode and Cfg.PerfShadows end,
+            tick = function(rec) setProp(rec, Lighting, "GlobalShadows", false) end,
+        },
+        {
+            id = "perf_effects",
+            want = function() return Cfg.PerfMode and Cfg.PerfEffects end,
+            tick = postEffects,
+        },
+        {
+            id = "perf_quality",
+            want = function() return Cfg.PerfMode and Cfg.PerfQuality end,
+            tick = function(rec) setProp(rec, settings().Rendering, "QualityLevel", Enum.QualityLevel.Level01) end,
+        },
+        {
+            id = "perf_terrain",
+            want = function() return Cfg.PerfMode and Cfg.PerfTerrain end,
+            tick = function(rec)
+                local t = workspace.Terrain
+                setProp(rec, t, "Decoration", false)
+                setProp(rec, t, "WaterWaveSize", 0)
+                setProp(rec, t, "WaterWaveSpeed", 0)
+                setProp(rec, t, "WaterReflectance", 0)
+            end,
+        },
+    }
+
+    local recs = {}
+    for _, e in ipairs(effects) do recs[e.id] = { saved = {}, on = false } end
+
+    -- interval pembaruan fitur lain (ESP, UI) diperlambat saat mode hemat aktif
+    local scaled = {
+        { id = "esp_players", slow = 0.45, flag = "PerfESP" },
+        { id = "esp_objects", slow = 0.45, flag = "PerfESP" },
+        { id = "esp_zombies", slow = 0.45, flag = "PerfESP" },
+        { id = "ui", slow = 1, flag = "PerfUI" },
+    }
+    local function applyIntervals(forceBase)
+        for _, s in ipairs(scaled) do
+            local f = Hub.byId[s.id]
+            if f then
+                f._base = f._base or f.interval or 0
+                local slow = (not forceBase) and Cfg.PerfMode and Cfg[s.flag]
+                f.interval = slow and s.slow or f._base
+            end
+        end
+    end
+
+    local function step()
+        for _, e in ipairs(effects) do
+            local rec = recs[e.id]
+            if e.want() then
+                rec.on = true
+                Hub.safe("world:" .. e.id, e.tick, rec)
+            elseif rec.on then
+                rec.on = false
+                restoreAll(rec)
+            end
+        end
+        applyIntervals(false)
+    end
+
+    Hub.register({
+        id = "world",
+        interval = 0.3,
+        update = step,
+        cleanup = function()
+            for _, e in ipairs(effects) do restoreAll(recs[e.id]) end
+            applyIntervals(true)
+        end,
+    })
+
+    --========================================================
+    -- UI: halaman Misc
+    --========================================================
+    Hub.ui(function(UI)
+        local p = UI.page("Misc", 6)
+        p:Section("Pencahayaan")
+        p:Toggle("Full bright", "Fullbright")
+        p:Slider("Tingkat kecerahan", "FBBright", 0, 6, 0.5, "")
+        p:Toggle("Hilangkan kabut", "NoFog")
+        p:Section("Performa")
+        p:Toggle("Mode hemat performa", "PerfMode")
+        p:Toggle("Matikan bayangan", "PerfShadows")
+        p:Toggle("Matikan efek visual", "PerfEffects")
+        p:Toggle("Kualitas grafis minimum", "PerfQuality")
+        p:Toggle("Air dan dekorasi minimal", "PerfTerrain")
+        p:Toggle("ESP hemat (update lebih jarang)", "PerfESP")
+        p:Toggle("UI hemat (tanpa animasi)", "PerfUI")
+    end)
+end
+end)()
+
 EMBEDDED["ui_tabs"] = (function()
--- ui_tabs.lua | isi halaman UI untuk modul yang sudah ada.
--- Modul baru (Aim, World, Move, ...) cukup memanggil Hub.ui(function(UI) ... end) di file-nya sendiri.
+-- ui_tabs.lua | isi halaman UI untuk modul inti. Angka kedua di UI.page = urutan di sidebar.
+-- Modul lain menambah halaman sendiri lewat Hub.ui(function(UI) ... end) (contoh: world.lua -> "Misc", urutan 6).
 return function(Hub)
     local Players, LP = Hub.Players, Hub.LP
     local Cfg, Config = Hub.Cfg, Hub.Config
@@ -1934,18 +2417,18 @@ return function(Hub)
     local function catControls(p, c)
         p:Section(c.name)
         p:Toggle("Aktif", c.on)
-        p:Toggle("Chams (sorot)", c.chams)
+        p:Toggle("Sorot (chams)", c.chams)
         p:Toggle("Label", c.label)
         p:Slider("Jarak maksimal", c.dist, 50, 5000, 50, " m")
         p:Color("Warna", c.col)
-        if c.keyCfg then p:Input("Kata kunci", c.keyCfg, "pisahkan dengan koma") end
+        if c.keyCfg then p:Input("Kata kunci", c.keyCfg) end
     end
 
     Hub.ui(function(UI)
         ----------------------------------------------------------------
         -- DASHBOARD
         ----------------------------------------------------------------
-        local d = UI.page("Dashboard", "📊")
+        local d = UI.page("Dashboard", 1)
         d:Info(function()
             local Core = Hub.Core
             local names = {}
@@ -1958,7 +2441,7 @@ return function(Hub)
             local k = Hub.ESP and Hub.ESP.shown or {}
             local objN = 0
             for _, n in pairs(Hub.Obj and Hub.Obj.shown or {}) do objN += n end
-            return ("ESP tampil: killer %d | survivor %d | zombie %d | objek %d"):format(
+            return ("ESP tampil: killer %d  |  survivor %d  |  zombie %d  |  objek %d"):format(
                 k.Killer or 0, k.Surv or 0, Hub.Zom and Hub.Zom.shown or 0, objN)
         end)
         d:Info(function()
@@ -1976,16 +2459,18 @@ return function(Hub)
         d:Toggle("ESP Killer", "ESPKiller")
         d:Toggle("ESP Survivor", "ESPSurv")
         d:Toggle("ESP Zombie", "ESPZombie")
+        d:Toggle("Full bright", "Fullbright")
+        d:Toggle("Mode hemat performa", "PerfMode")
 
         ----------------------------------------------------------------
-        -- ESP (umum + Killer + Survivor)
+        -- ESP
         ----------------------------------------------------------------
-        local e = UI.page("ESP", "👁")
+        local e = UI.page("ESP", 2)
         e:Section("Tampilan label")
         e:Toggle("Tampilkan nama", "ShowName")
         e:Toggle("Tampilkan jarak", "ShowDist")
         e:Toggle("Tampilkan HP", "ShowHP")
-        e:Toggle("Tag [KILLER]", "ShowRole")
+        e:Toggle("Tag killer", "ShowRole")
         e:Slider("Transparansi sorot", "FillT", 0, 100, 5, "%")
         e:Slider("Ukuran teks", "TextSize", 9, 22, 1, "")
         e:Choice("Mode ESP", "ESPMode", { "CoreGui", "Workspace" })
@@ -1995,32 +2480,33 @@ return function(Hub)
         ----------------------------------------------------------------
         -- OBJEK
         ----------------------------------------------------------------
-        local o = UI.page("Objek", "📦")
+        local o = UI.page("Objek", 3)
         for _, g in ipairs(Hub.OBJ_GROUPS) do catControls(o, g) end
 
         ----------------------------------------------------------------
         -- ZOMBIE
         ----------------------------------------------------------------
-        local z = UI.page("Zombie", "🧟")
+        local z = UI.page("Zombie", 4)
         catControls(z, Hub.CAT.Zombie)
         z:Toggle("Semua NPC (abaikan kata kunci)", "ZomAll")
 
         ----------------------------------------------------------------
         -- ROLE
         ----------------------------------------------------------------
-        local r = UI.page("Role", "🎭")
+        local r = UI.page("Role", 5)
         r:Info(function()
             local Core = Hub.Core
             if not Core or #Core.info == 0 then return "Belum ada pemain terdeteksi" end
             local lines = {}
             for _, e2 in ipairs(Core.info) do
-                lines[#lines + 1] = ("%s %s  skor %d"):format(e2.killer and "[K]" or "[S]", e2.p.DisplayName, e2.score)
+                lines[#lines + 1] = ("%s  %s   skor %d"):format(e2.killer and "Killer" or "Survivor", e2.p.DisplayName, e2.score)
             end
             return table.concat(lines, "\n")
         end)
+        r:Section("Deteksi")
         r:Slider("Jumlah killer", "KillerCount", 1, 4, 1, "")
         r:Button(function()
-            return "Killer manual: " .. (Cfg.ManualKiller ~= "" and Cfg.ManualKiller or "Auto") .. "  (tap ganti)"
+            return "Killer manual: " .. (Cfg.ManualKiller ~= "" and Cfg.ManualKiller or "Auto")
         end, function()
             local names = {}
             for _, p in ipairs(Players:GetPlayers()) do
@@ -2041,7 +2527,7 @@ return function(Hub)
             if Hub.Core then Hub.Core.dirty = true end
             UI.toast("Deteksi ulang dijadwalkan")
         end)
-        r:Button("Salin data pemain (debug)", function()
+        r:Button("Salin data pemain", function()
             if Hub.Core and copy(Hub.Core.dump()) then
                 UI.toast("Disalin ke clipboard")
             else
@@ -2050,41 +2536,55 @@ return function(Hub)
         end)
 
         ----------------------------------------------------------------
-        -- PENGATURAN
+        -- CONFIG (halaman Misc ada di world.lua, urutan 6)
         ----------------------------------------------------------------
-        local s = UI.page("Pengaturan", "⚙")
-        s:Section("Tampilan")
-        s:Color("Warna aksen", "UIAccent")
-        s:Section("Profil")
-        s:Input("Nama profil", "ProfileName", "mis. harian")
-        s:Button("Simpan profil", function()
+        local c = UI.page("Config", 7)
+        c:Section("Profil")
+        c:Input("Nama profil", "ProfileName")
+        c:Button("Simpan profil", function()
             local ok, err = Config.saveProfile(Cfg.ProfileName)
             UI.toast(ok and "Profil disimpan" or ("Gagal: " .. tostring(err)))
-        end)
-        s:Button("Muat profil", function()
+        end, "primary")
+        c:Button("Muat profil", function()
             local ok, err = Config.loadProfile(Cfg.ProfileName)
             UI.toast(ok and "Profil dimuat" or ("Gagal: " .. tostring(err)))
         end)
-        s:Button("Hapus profil", function()
+        c:Button("Hapus profil", function()
             Config.deleteProfile(Cfg.ProfileName)
-            UI.toast("Profil dihapus (jika ada)")
+            UI.toast("Profil dihapus")
         end, true)
-        s:Info(function()
+        c:Info(function()
             local l = Config.listProfiles()
-            return "Profil tersimpan: " .. (#l > 0 and table.concat(l, ", ") or "(kosong)")
+            return "Profil tersimpan: " .. (#l > 0 and table.concat(l, ", ") or "belum ada")
         end)
-        s:Section("Preset")
+
+        c:Section("Preset")
         for _, name in ipairs(Config.presetNames()) do
-            s:Button("Preset: " .. name, function()
+            c:Button(name, function()
                 Config.applyPreset(name)
                 UI.toast("Preset diterapkan: " .. name)
             end)
         end
-        s:Section("Lainnya")
-        s:Button("Salin diagnosis", function()
+
+        c:Section("Tampilan")
+        c:Color("Warna aksen", "UIAccent")
+        c:Button("Reset ukuran jendela", function()
+            UI.resetWindow()
+            UI.toast("Ukuran jendela direset")
+        end)
+
+        c:Section("Sistem")
+        c:Button("Salin konfigurasi (JSON)", function()
+            UI.toast(copy(Config.export()) and "Konfigurasi disalin" or "Clipboard tidak didukung")
+        end)
+        c:Button("Salin diagnosis", function()
             UI.toast(copy(diag()) and "Diagnosis disalin" or "Clipboard tidak didukung")
         end)
-        s:Button("Unload script", function() Hub.unload() end, true)
+        c:Button("Reset semua pengaturan", function()
+            Config.resetAll()
+            UI.toast("Semua pengaturan dikembalikan ke default")
+        end, true)
+        c:Button("Unload script", function() Hub.unload() end, true)
     end)
 end
 end)()
