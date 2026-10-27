@@ -13,10 +13,13 @@ local SOURCE = {
 }
 
 -- urutan penting: modul belakang memakai Hub.* dari modul depan
+
 local ORDER = {
     "hub", "games", "config", "cats", "ui", "pool", "index", "roles",
     "esp_players", "esp_objects", "esp_zombies", "world", "ui_tabs",
+    "violence_district",
 }
+
 -- gagal di salah satu ini = hentikan semuanya
 local CRITICAL = { hub = true, games = true, config = true, cats = true }
 
