@@ -68,6 +68,7 @@ return function(Hub)
         end
         table.sort(list, function(a, b) return a.dist < b.dist end)
         local col = Cfg[cat.col]
+        local hlMax = (Cfg.PerfMode and Cfg.PerfESP) and 3 or 8
         for i, rec in ipairs(list) do
             local ok = pcall(function()
                 if Cfg[cat.label] then
@@ -80,7 +81,7 @@ return function(Hub)
                 else
                     Gfx.dropBB(rec)
                 end
-                if Cfg[cat.chams] and i <= 8 then
+                if Cfg[cat.chams] and i <= hlMax then
                     Gfx.ensureHL(rec)
                     rec.hl.FillColor, rec.hl.OutlineColor = col, col
                     rec.hl.FillTransparency = Cfg.FillT / 100
