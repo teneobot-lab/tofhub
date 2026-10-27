@@ -188,7 +188,7 @@ return function(Hub)
     })
 
     Hub.ui(function(UI)
-        local p = UI.page("Violence District", 7)
+        local p = UI.page("Violence District", 8)
         p:Section("Generator / Skill Check")
         p:Toggle("Auto Skill Check", "VDAutoSkillCheck")
         p:Choice("Mode Skill Check", "VDSkillMode", {"Perfect", "Normal", "Instant"})
