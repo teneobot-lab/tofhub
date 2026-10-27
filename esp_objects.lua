@@ -125,10 +125,12 @@ return function(Hub)
         end
         table.sort(list, function(a, b) return a.dist < b.dist end)
         local shown, hlCount = {}, 0
+        local hlMax = (Cfg.PerfMode and Cfg.PerfESP) and 5 or 16
         for _, g in ipairs(OBJ_GROUPS) do shown[g.id] = 0 end
-        for _, rec in ipairs(list) do
+        local cap = (Hub.Perf and Hub.Perf.maxObjects) or 1e9
+        for i, rec in ipairs(list) do
             local g = rec.g
-            local ok = pcall(function()
+            local ok = i <= cap and pcall(function()
                 local col = Cfg[g.col]
                 if Cfg[g.label] then
                     Gfx.ensureBB(rec, 200, 18, 2)
@@ -144,7 +146,7 @@ return function(Hub)
                 else
                     Gfx.dropBB(rec)
                 end
-                if Cfg[g.chams] and hlCount < 16 then
+                if Cfg[g.chams] and hlCount < hlMax then
                     hlCount += 1
                     Gfx.ensureHL(rec)
                     rec.hl.FillColor, rec.hl.OutlineColor = col, col
